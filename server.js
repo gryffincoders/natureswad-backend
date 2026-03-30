@@ -18,8 +18,8 @@ const razorpay = new Razorpay({
 
 // 2. Connect to MongoDB Atlas (Production Ready)
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('✅ Connected to MongoDB Atlas!'))
-  .catch((err) => console.error('❌ MongoDB connection error:', err));
+  .then(() => console.log(' Connected to MongoDB Atlas!'))
+  .catch((err) => console.error(' MongoDB connection error:', err));
 
 // 3. Define the Order Schema
 const orderSchema = new mongoose.Schema({
@@ -108,9 +108,9 @@ app.get('/api/orders/:userId', async (req, res) => {
   }
 });
 
-// ✅ IMPORTANT FOR RENDER
+// IMPORTANT FOR RENDER
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(` Server running on port ${PORT}`);
 });
