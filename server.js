@@ -7,7 +7,16 @@ const Razorpay = require('razorpay');
 const crypto = require('crypto');
 
 const app = express();
-app.use(cors());
+
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
+
+app.options("*", cors());
+
 app.use(express.json());
 
 
@@ -16,7 +25,7 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-
+// 2. Connect to MongoDB Atlas
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log(' Connected to MongoDB Atlas!'))
   .catch((err) => console.error(' MongoDB connection error:', err));
@@ -28,7 +37,7 @@ const orderSchema = new mongoose.Schema({
   items: Array,
   address: Object,
   paymentMethod: String,
-  status: { type: String, default: "Placed" }, // Updated to handle tracking
+  status: { type: String, default: "Placed" }, 
   razorpay_order_id: String,
   razorpay_payment_id: String,
   createdAt: { type: Date, default: Date.now }
@@ -50,7 +59,6 @@ app.post('/api/create-razorpay-order', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 
 app.post('/api/verify-and-save-order', async (req, res) => {
   try {
@@ -81,12 +89,11 @@ app.post('/api/verify-and-save-order', async (req, res) => {
   }
 });
 
-
 app.post('/api/place-cod-order', async (req, res) => {
   try {
     const newOrder = new Order({
       ...req.body.orderDetails,
-      status: "Pending (COD)", // Automatically mapped to "Placed" on the frontend
+      status: "Pending (COD)", 
     });
 
     const savedOrder = await newOrder.save();
@@ -96,7 +103,6 @@ app.post('/api/place-cod-order', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 
 app.get('/api/orders/:identifier', async (req, res) => {
   try {
@@ -133,7 +139,7 @@ app.patch('/api/orders/:id/status', async (req, res) => {
     const updatedOrder = await Order.findByIdAndUpdate(
       req.params.id,
       { status: status },
-      { new: true } 
+      { new: true }
     );
 
     if (!updatedOrder) {
@@ -145,6 +151,7 @@ app.patch('/api/orders/:id/status', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 
 const PORT = process.env.PORT || 3000;
