@@ -142,13 +142,13 @@ app.get('/api/admin/orders', async (req, res) => {
 });
 
 
-app.patch('/api/orders/:id/status', async (req, res) => {
+app.post('/api/orders/:id/status', async (req, res) => {
   try {
     const { status } = req.body;
-    
+
     const updatedOrder = await Order.findByIdAndUpdate(
       req.params.id,
-      { status: status },
+      { status },
       { new: true }
     );
 
@@ -158,6 +158,7 @@ app.patch('/api/orders/:id/status', async (req, res) => {
 
     res.status(200).json(updatedOrder);
   } catch (error) {
+    console.error("STATUS UPDATE ERROR:", error);
     res.status(500).json({ error: error.message });
   }
 });
