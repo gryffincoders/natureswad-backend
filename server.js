@@ -2,24 +2,26 @@
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
-const cors = require('cors');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 
 const app = express();
 
-
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-}));
-
-
 app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+  );
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization"
+  );
+
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
+
   next();
 });
 
@@ -32,9 +34,8 @@ const razorpay = new Razorpay({
 
 
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('Connected to MongoDB Atlas!'))
+  .then(() => console.log(' Connected to MongoDB Atlas!'))
   .catch((err) => console.error('MongoDB connection error:', err));
-
 
 const orderSchema = new mongoose.Schema({
   userId: String,
@@ -95,6 +96,7 @@ app.post('/api/verify-and-save-order', async (req, res) => {
   }
 });
 
+
 app.post('/api/place-cod-order', async (req, res) => {
   try {
     const newOrder = new Order({
@@ -109,6 +111,7 @@ app.post('/api/place-cod-order', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 app.get('/api/orders/:identifier', async (req, res) => {
   try {
@@ -137,6 +140,7 @@ app.get('/api/admin/orders', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 app.patch('/api/orders/:id/status', async (req, res) => {
   try {
