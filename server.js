@@ -8,6 +8,7 @@ const crypto = require('crypto');
 
 const app = express();
 
+
 app.use(cors({
   origin: "*",
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -15,20 +16,24 @@ app.use(cors({
 }));
 
 
-app.options("*", cors());
+app.use((req, res, next) => {
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 app.use(express.json());
-
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-// 2. Connect to MongoDB Atlas
+
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log(' Connected to MongoDB Atlas!'))
-  .catch((err) => console.error(' MongoDB connection error:', err));
+  .then(() => console.log('Connected to MongoDB Atlas!'))
+  .catch((err) => console.error('MongoDB connection error:', err));
 
 
 const orderSchema = new mongoose.Schema({
@@ -59,6 +64,7 @@ app.post('/api/create-razorpay-order', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 app.post('/api/verify-and-save-order', async (req, res) => {
   try {
@@ -151,7 +157,6 @@ app.patch('/api/orders/:id/status', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 
 
 const PORT = process.env.PORT || 3000;
