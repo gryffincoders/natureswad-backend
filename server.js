@@ -1,4 +1,4 @@
-// server.js
+
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
@@ -10,25 +10,25 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 1. Initialize Razorpay
+
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-// 2. Connect to MongoDB Atlas (Production Ready)
+
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log(' Connected to MongoDB Atlas!'))
   .catch((err) => console.error(' MongoDB connection error:', err));
 
-// 3. Define the Order Schema
+
 const orderSchema = new mongoose.Schema({
   userId: String,
   total: Number,
   items: Array,
   address: Object,
   paymentMethod: String,
-  status: String,
+  status: { type: String, default: "Placed" }, // Updated to handle tracking
   razorpay_order_id: String,
   razorpay_payment_id: String,
   createdAt: { type: Date, default: Date.now }
@@ -36,7 +36,6 @@ const orderSchema = new mongoose.Schema({
 
 const Order = mongoose.model('Order', orderSchema);
 
-// --- API ENDPOINTS ---
 
 app.post('/api/create-razorpay-order', async (req, res) => {
   try {
@@ -51,6 +50,7 @@ app.post('/api/create-razorpay-order', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 app.post('/api/verify-and-save-order', async (req, res) => {
   try {
@@ -70,7 +70,7 @@ app.post('/api/verify-and-save-order', async (req, res) => {
       ...orderDetails,
       razorpay_order_id,
       razorpay_payment_id,
-      status: "Paid",
+      status: "Paid", 
     });
 
     const savedOrder = await newOrder.save();
@@ -80,12 +80,13 @@ app.post('/api/verify-and-save-order', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 app.post('/api/place-cod-order', async (req, res) => {
   try {
     const newOrder = new Order({
       ...req.body.orderDetails,
-      status: "Pending (COD)",
+      status: "Pending (COD)", // Automatically mapped to "Placed" on the frontend
     });
 
     const savedOrder = await newOrder.save();
@@ -96,10 +97,17 @@ app.post('/api/place-cod-order', async (req, res) => {
   }
 });
 
-app.get('/api/orders/:userId', async (req, res) => {
+
+app.get('/api/orders/:identifier', async (req, res) => {
   try {
-    const orders = await Order.find({ userId: req.params.userId })
-      .sort({ createdAt: -1 });
+    const { identifier } = req.params;
+
+    const orders = await Order.find({
+      $or: [
+        { userId: identifier },
+        { "address.phone": identifier } 
+      ]
+    }).sort({ createdAt: -1 });
 
     res.json(orders);
 
@@ -108,7 +116,37 @@ app.get('/api/orders/:userId', async (req, res) => {
   }
 });
 
-// IMPORTANT FOR RENDER
+
+app.get('/api/admin/orders', async (req, res) => {
+  try {
+    const orders = await Order.find().sort({ createdAt: -1 });
+    res.status(200).json(orders);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/orders/:id/status', async (req, res) => {
+  try {
+    const { status } = req.body;
+    
+    const updatedOrder = await Order.findByIdAndUpdate(
+      req.params.id,
+      { status: status },
+      { new: true } 
+    );
+
+    if (!updatedOrder) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+    res.status(200).json(updatedOrder);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
