@@ -1,4 +1,3 @@
-
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
@@ -34,11 +33,23 @@ const razorpay = new Razorpay({
 
 
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log(' Connected to MongoDB Atlas!'))
+  .then(() => console.log('Connected to MongoDB Atlas!'))
   .catch((err) => console.error('MongoDB connection error:', err));
+
+
+const userSchema = new mongoose.Schema({
+  uid: { type: String, required: true, unique: true },
+  points: { type: Number, default: 0 }
+});
+const User = mongoose.model('User', userSchema);
+
 
 const orderSchema = new mongoose.Schema({
   userId: String,
+  subtotal: Number,
+  discountApplied: Number,
+  pointsRedeemed: Number,
+  pointsEarned: Number,
   total: Number,
   items: Array,
   address: Object,
@@ -48,8 +59,46 @@ const orderSchema = new mongoose.Schema({
   razorpay_payment_id: String,
   createdAt: { type: Date, default: Date.now }
 });
-
 const Order = mongoose.model('Order', orderSchema);
+
+
+
+const handlePointsLogic = async (userId, pointsRedeemed, pointsEarned) => {
+  if (!userId || userId === 'guest') return;
+
+  let user = await User.findOne({ uid: userId });
+  if (!user) {
+    user = new User({ uid: userId, points: 0 });
+  }
+
+  
+  if (pointsRedeemed > 0 && user.points < pointsRedeemed) {
+    throw new Error("Insufficient points for redemption.");
+  }
+
+  user.points -= (pointsRedeemed || 0);
+  user.points += (pointsEarned || 0);
+
+  await user.save();
+};
+
+
+app.get('/api/user-points/:uid', async (req, res) => {
+  try {
+    const { uid } = req.params;
+    if (uid === 'guest') return res.json({ points: 0 });
+
+    let user = await User.findOne({ uid });
+    if (!user) {
+      
+      user = await User.create({ uid, points: 0 });
+    }
+
+    res.json({ points: user.points });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 
 app.post('/api/create-razorpay-order', async (req, res) => {
@@ -81,6 +130,9 @@ app.post('/api/verify-and-save-order', async (req, res) => {
       return res.status(400).json({ error: "Invalid payment signature." });
     }
 
+  
+    await handlePointsLogic(orderDetails.userId, orderDetails.pointsRedeemed, orderDetails.pointsEarned);
+
     const newOrder = new Order({
       ...orderDetails,
       razorpay_order_id,
@@ -99,8 +151,13 @@ app.post('/api/verify-and-save-order', async (req, res) => {
 
 app.post('/api/place-cod-order', async (req, res) => {
   try {
+    const { orderDetails } = req.body;
+
+    
+    await handlePointsLogic(orderDetails.userId, orderDetails.pointsRedeemed, orderDetails.pointsEarned);
+
     const newOrder = new Order({
-      ...req.body.orderDetails,
+      ...orderDetails,
       status: "Pending (COD)", 
     });
 
