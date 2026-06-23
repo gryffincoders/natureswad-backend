@@ -1,3 +1,4 @@
+// server.js
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
@@ -8,19 +9,12 @@ const app = express();
 
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
-  res.header(
-    "Access-Control-Allow-Methods",
-    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-  );
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization"
-  );
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
-
   next();
 });
 
@@ -31,18 +25,9 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('Connected to MongoDB Atlas!'))
   .catch((err) => console.error('MongoDB connection error:', err));
-
-
-const userSchema = new mongoose.Schema({
-  uid: { type: String, required: true, unique: true },
-  points: { type: Number, default: 0 }
-});
-const User = mongoose.model('User', userSchema);
-
 
 const orderSchema = new mongoose.Schema({
   userId: String,
@@ -61,45 +46,37 @@ const orderSchema = new mongoose.Schema({
 });
 const Order = mongoose.model('Order', orderSchema);
 
+// ✅ FIX: DYNAMIC RE-CALCULATION BLOCK PREVENTS STRANDED OR DELETED CONTEXT POINTS
+const calculateDynamicPoints = async (identifier) => {
+  if (!identifier || identifier === 'guest') return 0;
 
+  // Query all active orders tied to this UID or contact number
+  const activeOrders = await Order.find({
+    $or: [
+      { userId: identifier },
+      { "address.phone": identifier }
+    ]
+  });
 
-const handlePointsLogic = async (userId, pointsRedeemed, pointsEarned) => {
-  if (!userId || userId === 'guest') return;
+  let totalPoints = 0;
+  activeOrders.forEach(order => {
+    totalPoints += (order.pointsEarned || 0);
+    totalPoints -= (order.pointsRedeemed || 0);
+  });
 
-  let user = await User.findOne({ uid: userId });
-  if (!user) {
-    user = new User({ uid: userId, points: 0 });
-  }
-
-  
-  if (pointsRedeemed > 0 && user.points < pointsRedeemed) {
-    throw new Error("Insufficient points for redemption.");
-  }
-
-  user.points -= (pointsRedeemed || 0);
-  user.points += (pointsEarned || 0);
-
-  await user.save();
+  return Math.max(0, totalPoints); // Never allow negative points tracking anomalies
 };
 
-
+// ✅ FIX: ENFORCED DYNAMIC REAL-TIME AGGREGATION TO IGNORE DELETED ORDERS
 app.get('/api/user-points/:uid', async (req, res) => {
   try {
     const { uid } = req.params;
-    if (uid === 'guest') return res.json({ points: 0 });
-
-    let user = await User.findOne({ uid });
-    if (!user) {
-      
-      user = await User.create({ uid, points: 0 });
-    }
-
-    res.json({ points: user.points });
+    const currentActivePoints = await calculateDynamicPoints(uid);
+    res.json({ points: currentActivePoints });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
-
 
 app.post('/api/create-razorpay-order', async (req, res) => {
   try {
@@ -115,7 +92,6 @@ app.post('/api/create-razorpay-order', async (req, res) => {
   }
 });
 
-
 app.post('/api/verify-and-save-order', async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderDetails } = req.body;
@@ -130,8 +106,11 @@ app.post('/api/verify-and-save-order', async (req, res) => {
       return res.status(400).json({ error: "Invalid payment signature." });
     }
 
-  
-    await handlePointsLogic(orderDetails.userId, orderDetails.pointsRedeemed, orderDetails.pointsEarned);
+    // Safety structural validation check for balance thresholds before writing
+    const userCurrentBalance = await calculateDynamicPoints(orderDetails.userId);
+    if (orderDetails.pointsRedeemed > 0 && userCurrentBalance < orderDetails.pointsRedeemed) {
+      return res.status(400).json({ error: "Insufficient rewards points threshold balance available." });
+    }
 
     const newOrder = new Order({
       ...orderDetails,
@@ -148,13 +127,14 @@ app.post('/api/verify-and-save-order', async (req, res) => {
   }
 });
 
-
 app.post('/api/place-cod-order', async (req, res) => {
   try {
     const { orderDetails } = req.body;
 
-    
-    await handlePointsLogic(orderDetails.userId, orderDetails.pointsRedeemed, orderDetails.pointsEarned);
+    const userCurrentBalance = await calculateDynamicPoints(orderDetails.userId);
+    if (orderDetails.pointsRedeemed > 0 && userCurrentBalance < orderDetails.pointsRedeemed) {
+      return res.status(400).json({ error: "Insufficient rewards points threshold balance available." });
+    }
 
     const newOrder = new Order({
       ...orderDetails,
@@ -168,7 +148,6 @@ app.post('/api/place-cod-order', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 
 app.get('/api/orders/:identifier', async (req, res) => {
   try {
@@ -188,7 +167,6 @@ app.get('/api/orders/:identifier', async (req, res) => {
   }
 });
 
-
 app.get('/api/admin/orders', async (req, res) => {
   try {
     const orders = await Order.find().sort({ createdAt: -1 });
@@ -197,7 +175,6 @@ app.get('/api/admin/orders', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 
 app.post('/api/orders/:id/status', async (req, res) => {
   try {
@@ -220,9 +197,18 @@ app.post('/api/orders/:id/status', async (req, res) => {
   }
 });
 
+// ✅ ADDED AN EXPLICIT DELETE ROUTE FOR TESTING OR CANCELLATIONS TO PROVE SYNC
+app.delete('/api/orders/:id', async (req, res) => {
+  try {
+    const deletedOrder = await Order.findByIdAndDelete(req.params.id);
+    if (!deletedOrder) return res.status(404).json({ error: "Order context missing." });
+    res.json({ success: true, message: "Order removed. Associated tracking points recalculated." });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
-  console.log(` Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
